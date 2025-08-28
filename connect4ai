@@ -1,0 +1,245 @@
+import numpy as np
+import math
+import pygame
+import sys
+import pygame.font
+
+
+row = 6
+col = 7
+player = 1
+ai = 2
+window_length = 4
+squaresize = 100
+radius = int(squaresize / 2 - 5)
+width = col * squaresize
+height = (row + 1) * squaresize
+
+black = (0, 0, 0)
+blue = (0, 0, 255)
+red = (255, 0, 0)
+yellow = (255, 255, 0)
+
+#board
+def createboard():
+    return np.zeros((row, col), dtype=int)
+
+def placepiece(board, rownum, colnum, piece):
+    board[rownum][colnum] = piece
+
+def validplace(board, colnum):
+    return board[row - 1][colnum] == 0
+
+def openrow(board, colnum):
+    for r in range(row):
+        if board[r][colnum] == 0:
+            return r
+
+def winning(board, piece):
+   #hor
+    for r in range(row):
+        for c in range(col - 3):
+            if all(board[r][c + i] == piece for i in range(4)):
+                return True
+    #vertial
+    for c in range(col):
+        for r in range(row - 3):
+            if all(board[r + i][c] == piece for i in range(4)):
+                return True
+    #pos digaonal 
+    for r in range(row - 3):
+        for c in range(col - 3):
+            if all(board[r + i][c + i] == piece for i in range(4)):
+                return True
+    # neg diagonal
+    for r in range(3, row):
+        for c in range(col - 3):
+            if all(board[r - i][c + i] == piece for i in range(4)):
+                return True
+    return False
+
+def wincondition(board):
+    return winning(board, player) or winning(board, ai)
+
+
+def vaillocation(board):
+    return [c for c in range(col) if validplace(board, c)]
+#hersutics
+def evaluationfunction(window, piece):
+    score = 0
+    opponent_piece = player if piece == ai else ai
+
+    if window.count(piece) == 4:
+        score += 1000
+    elif window.count(piece) == 3 and window.count(0) == 1:
+        score += 100
+    elif window.count(piece) == 2 and window.count(0) == 2:
+        score += 10
+
+    if window.count(opponent_piece) == 3 and window.count(0) == 1:
+        score -= 80
+
+    return score
+#ai move
+def scoreposition(board, piece):
+    score = 0
+    
+    center_array = [int(i) for i in list(board[:, col // 2])]
+    score += center_array.count(piece) * 3
+
+    
+    for r in range(row):
+        row_array = [int(i) for i in list(board[r, :])]
+        for c in range(col - 3):
+            window = row_array[c:c + 4]
+            score += evaluationfunction(window, piece)
+
+    
+    for c in range(col):
+        col_array = [int(i) for i in list(board[:, c])]
+        for r in range(row - 3):
+            window = col_array[r:r + 4]
+            score += evaluationfunction(window, piece)
+
+    
+    for r in range(row - 3):
+        for c in range(col - 3):
+            window = [board[r + i][c + i] for i in range(4)]
+            score += evaluationfunction(window, piece)
+
+    
+    for r in range(3, row):
+        for c in range(col - 3):
+            window = [board[r - i][c + i] for i in range(4)]
+            score += evaluationfunction(window, piece)
+
+    return score
+
+def minimax(board, depth, alpha, beta, maxplayer):
+    valid_locations = vaillocation(board)
+    is_terminal = wincondition(board) or len(valid_locations) == 0 or depth == 0
+
+    if depth == 0 or is_terminal:
+        if wincondition(board):
+            if winning(board, ai):
+                return (None, 1000000)
+            elif winning(board, player):
+                return (None, -1000000)
+        else:
+            return (None, scoreposition(board, ai))
+
+    if maxplayer:
+        value = -math.inf
+        column = valid_locations[0]
+        for col_choice in valid_locations:
+            row_choice = openrow(board, col_choice)
+            temp_board = board.copy()
+            placepiece(temp_board, row_choice, col_choice, ai)
+            new_score = minimax(temp_board, depth - 1, alpha, beta, False)[1]
+            if new_score > value:
+                value = new_score
+                column = col_choice
+            alpha = max(alpha, value)
+            if alpha >= beta:
+                break
+        return column, value
+    else:
+        value = math.inf
+        column = valid_locations[0]
+        for col_choice in valid_locations:
+            row_choice = openrow(board, col_choice)
+            temp_board = board.copy()
+            placepiece(temp_board, row_choice, col_choice, player)
+            new_score = minimax(temp_board, depth - 1, alpha, beta, True)[1]
+            if new_score < value:
+                value = new_score
+                column = col_choice
+            beta = min(beta, value)
+            if alpha >= beta:
+                break
+        return column, value
+
+def bestmove(board, piece):
+    col_choice, _ = minimax(board, 5, -math.inf, math.inf, True)
+    return col_choice
+
+#board
+def drawboard(board):
+    for c in range(col):
+        for r in range(row):
+            pygame.draw.rect(screen, blue, (c * squaresize, r * squaresize + squaresize, squaresize, squaresize))
+            pygame.draw.circle(screen, black, (int(c * squaresize + squaresize / 2),
+                                               int(r * squaresize + squaresize + squaresize / 2)), radius)
+
+    for c in range(col):
+        for r in range(row):
+            if board[r][c] == player:
+                pygame.draw.circle(screen, red, (int(c * squaresize + squaresize / 2),
+                                                 height - int(r * squaresize + squaresize / 2)), radius)
+            elif board[r][c] == ai:
+                pygame.draw.circle(screen, yellow, (int(c * squaresize + squaresize / 2),
+                                                    height - int(r * squaresize + squaresize / 2)), radius)
+    pygame.display.update()
+
+
+def game():
+    pygame.init()
+    global screen
+    screen = pygame.display.set_mode((width, height))
+    pygame.display.set_caption("Connect 4")
+    board = createboard()
+    drawboard(board)
+    pygame.display.update()
+
+    turn = player
+    game_over = False
+    font = pygame.font.SysFont("monospace", 75)
+
+    while not game_over:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                sys.exit()
+
+            if event.type == pygame.MOUSEMOTION and turn == player:
+                pygame.draw.rect(screen, black, (0, 0, width, squaresize))
+                posx = event.pos[0]
+                pygame.draw.circle(screen, red, (posx, int(squaresize / 2)), radius)
+                pygame.display.update()
+
+            if event.type == pygame.MOUSEBUTTONDOWN and turn == player:
+                pygame.draw.rect(screen, black, (0, 0, width, squaresize))
+                posx = event.pos[0]
+                col_choice = int(posx // squaresize)
+                if validplace(board, col_choice):
+                    row_choice = openrow(board, col_choice)
+                    placepiece(board, row_choice, col_choice, player)
+
+                    if winning(board, player):
+                        label = font.render("Player wins!", 1, red)
+                        screen.blit(label, (40, 10))
+                        game_over = True
+
+                    turn = ai
+                    drawboard(board)
+
+        # ai turn
+        if turn == ai and not game_over:
+            col_choice = bestmove(board, ai)
+            if validplace(board, col_choice):
+                row_choice = openrow(board, col_choice)
+                placepiece(board, row_choice, col_choice, ai)
+
+                if winning(board, ai):
+                    label = font.render("AI wins!", 1, yellow)
+                    screen.blit(label, (40, 10))
+                    game_over = True
+
+                turn = player
+                drawboard(board)
+
+        if game_over:
+            pygame.display.update()
+            pygame.time.wait(3000)
+
+
+game()
